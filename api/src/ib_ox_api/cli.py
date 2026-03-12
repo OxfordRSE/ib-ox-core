@@ -69,8 +69,9 @@ def users_list() -> None:
     for user in all_users:
         scope = scope_json_to_dict(user.scope_json)
         active_flag = "active" if user.is_active else "inactive"
+        admin_flag = ", admin" if user.is_admin else ""
         click.echo(
-            f"  [{user.id}] {user.username} ({active_flag}) scope={json.dumps(scope)}"
+            f"  [{user.id}] {user.username} ({active_flag}{admin_flag}) scope={json.dumps(scope)}"
         )
 
 
@@ -82,7 +83,8 @@ def users_list() -> None:
     default="{}",
     help='Scope JSON, e.g. \'{"filters": {"school": ["School A"]}}\'',
 )
-def users_create(username: str, password: str, scope: str) -> None:
+@click.option("--admin", "is_admin", is_flag=True, default=False, help="Grant admin privileges.")
+def users_create(username: str, password: str, scope: str, is_admin: bool) -> None:
     """Create a new user."""
     try:
         scope_data = json.loads(scope)
@@ -98,9 +100,16 @@ def users_create(username: str, password: str, scope: str) -> None:
         if existing is not None:
             click.echo(f"User '{username}' already exists.", err=True)
             sys.exit(1)
-        user = create_user(db, username=username, hashed_password=hashed, scope_json=scope_json)
+        user = create_user(
+            db,
+            username=username,
+            hashed_password=hashed,
+            scope_json=scope_json,
+            is_admin=is_admin,
+        )
 
-    click.echo(f"User '{user.username}' created (id={user.id}).")
+    admin_flag = " [ADMIN]" if user.is_admin else ""
+    click.echo(f"User '{user.username}' created (id={user.id}){admin_flag}.")
 
 
 @users.command("update")

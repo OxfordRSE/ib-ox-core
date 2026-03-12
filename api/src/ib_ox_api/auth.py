@@ -52,6 +52,7 @@ def _user_model_to_read(user: UserModel) -> UserRead:
         username=user.username,
         scope=scope,
         is_active=user.is_active,
+        is_admin=user.is_admin,
     )
 
 

@@ -20,6 +20,7 @@ class UserModel(Base):
     hashed_password = Column(String, nullable=False)
     scope_json = Column(String, nullable=False, default="{}")
     is_active = Column(Boolean, default=True, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
 
 
 engine = create_engine(
@@ -54,12 +55,14 @@ def create_user(
     hashed_password: str,
     scope_json: str = "{}",
     is_active: bool = True,
+    is_admin: bool = False,
 ) -> UserModel:
     user = UserModel(
         username=username,
         hashed_password=hashed_password,
         scope_json=scope_json,
         is_active=is_active,
+        is_admin=is_admin,
     )
     db.add(user)
     db.commit()
@@ -73,6 +76,7 @@ def update_user(
     hashed_password: Optional[str] = None,
     scope_json: Optional[str] = None,
     is_active: Optional[bool] = None,
+    is_admin: Optional[bool] = None,
 ) -> UserModel:
     if hashed_password is not None:
         user.hashed_password = hashed_password
@@ -80,6 +84,8 @@ def update_user(
         user.scope_json = scope_json
     if is_active is not None:
         user.is_active = is_active
+    if is_admin is not None:
+        user.is_admin = is_admin
     db.commit()
     db.refresh(user)
     return user

@@ -38,6 +38,7 @@ class UserCreate(BaseModel):
     username: str
     password: str
     scope: UserScope = Field(default_factory=UserScope)
+    is_admin: bool = False
 
 
 class UserRead(BaseModel):
@@ -45,6 +46,7 @@ class UserRead(BaseModel):
     username: str
     scope: UserScope
     is_active: bool
+    is_admin: bool = False
     model_config = {"from_attributes": True}
 
 
@@ -52,6 +54,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     scope: Optional[UserScope] = None
     is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None
 
 
 class FilterOp(str, Enum):
