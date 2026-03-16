@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -205,3 +205,32 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+build/
+.env
+
+# Terraform
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+terraform/.terraform/
+
+# Docker
+.docker/
+
+# Deploy lockfile (generated at deploy time)
+.deploy-lock.json
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Local data directory — contents are ignored, but the directory is tracked via .gitkeep
+data/*
+!data/.gitkeep
