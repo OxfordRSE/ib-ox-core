@@ -35,10 +35,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def _alembic_ini_path() -> Path:
-    """Return the path to alembic.ini, located two levels above this file's package."""
-    # database.py is at api/src/ib_ox_api/database.py
-    # alembic.ini is at api/alembic.ini  (3 parent dirs up from database.py)
-    return Path(__file__).parent.parent.parent / "alembic.ini"
+    """Find alembic.ini by searching upward from this file's location.
+
+    Searches: package dir → src/ → api/ → repo root.
+    This is resilient to installed-package path variations.
+    """
+    here = Path(__file__).parent
+    for candidate in (here, here.parent, here.parent.parent, here.parent.parent.parent):
+        ini = candidate / "alembic.ini"
+        if ini.exists():
+            return ini
+    raise FileNotFoundError(
+        "alembic.ini not found. Ensure it is present in the api/ directory "
+        "or set ALEMBIC_INI_PATH environment variable."
+    )
 
 
 def run_migrations() -> None:

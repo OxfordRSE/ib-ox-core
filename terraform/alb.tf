@@ -131,3 +131,31 @@ resource "aws_security_group" "ecs" {
 
   tags = local.tags
 }
+
+# ─── Route 53 + ACM (optional, requires domain_name and certificate_arn) ─────
+
+# Look up the Route 53 hosted zone for the domain (if domain_name is set).
+# Zone lookup: strips the leftmost label to find the parent zone.
+#   e.g. "dashboard.example.ac.uk" → looks for zone "example.ac.uk"
+# Requires at least a two-label domain (e.g. "example.ac.uk").
+# For single-label or apex domains, set the zone_id manually via a tfvar.
+data "aws_route53_zone" "main" {
+  count = var.domain_name != "" ? 1 : 0
+  # Strip the first label to derive the parent zone name
+  name         = join(".", slice(split(".", var.domain_name), 1, length(split(".", var.domain_name))))
+  private_zone = false
+}
+
+# DNS alias record pointing the custom domain to the ALB
+resource "aws_route53_record" "main" {
+  count   = var.domain_name != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.main[0].zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}

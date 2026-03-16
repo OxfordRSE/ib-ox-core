@@ -43,13 +43,16 @@ def suppress_frequency_table(
             return agg, suppressions
 
         # Simple count of distinct students per group combination
-        uid_col = "uid" if "uid" in df.columns else df.columns[0]
-        agg = (
-            df.groupby(group_cols)[uid_col]
-            .nunique()
-            .reset_index()
-            .rename(columns={uid_col: "n"})
-        )
+        if "uid" in df.columns:
+            agg = (
+                df.groupby(group_cols)["uid"]
+                .nunique()
+                .reset_index()
+                .rename(columns={"uid": "n"})
+            )
+        else:
+            # No uid column — count rows per group as a fallback
+            agg = df.groupby(group_cols).size().reset_index(name="n")
         for idx, row in agg.iterrows():
             if row["n"] < min_n:
                 agg.at[idx, "n"] = float("nan")

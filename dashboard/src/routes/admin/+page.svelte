@@ -1,21 +1,35 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { authStore, isAdmin } from '$lib/stores';
   import { listUsers, createUser, updateUser, deleteUser, ApiError } from '$lib/api';
   import type { User, UserCreate, UserUpdate } from '$lib/api';
 
-  let users = $state<User[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-  let actionError = $state<string | null>(null);
+  // Redirect non-admins
+  $effect(() => {
+    if (!$isAdmin) goto('/');
+  });
 
-  // Modal state
+  // ─── User list via {#await} ──────────────────────────────────────────────────
+
+  let listVersion = $state(0); // increment to trigger a reload
+
+  function loadUsers() {
+    return listUsers($authStore.token!);
+  }
+
+  // Reactive promise: re-created whenever listVersion changes
+  let usersPromise = $derived.by(() => { listVersion; return loadUsers(); });
+
+  function reloadUsers() {
+    listVersion += 1;
+  }
+
+  // ─── Modal state ─────────────────────────────────────────────────────────────
+
   type ModalMode = 'create' | 'edit' | null;
   let modalMode = $state<ModalMode>(null);
   let editingUser = $state<User | null>(null);
 
-  // Form fields
   let formUsername = $state('');
   let formPassword = $state('');
   let formScopeJson = $state('{"filters": {}}');
@@ -25,27 +39,10 @@
   let formError = $state<string | null>(null);
 
   let deleteTarget = $state<User | null>(null);
+  let deleteLoading = $state(false);
+  let actionError = $state<string | null>(null);
+
   const scopePlaceholder = '{"filters": {"school": ["School A"]}}';
-
-  onMount(async () => {
-    if (!$isAdmin) {
-      goto('/');
-      return;
-    }
-    await loadUsers();
-  });
-
-  async function loadUsers() {
-    loading = true;
-    error = null;
-    try {
-      users = await listUsers($authStore.token!);
-    } catch (e: unknown) {
-      error = e instanceof Error ? e.message : 'Failed to load users';
-    } finally {
-      loading = false;
-    }
-  }
 
   function openCreate() {
     modalMode = 'create';
@@ -89,24 +86,15 @@
     formLoading = true;
     try {
       if (modalMode === 'create') {
-        const payload: UserCreate = {
-          username: formUsername,
-          password: formPassword,
-          scope,
-          is_admin: formIsAdmin
-        };
+        const payload: UserCreate = { username: formUsername, password: formPassword, scope, is_admin: formIsAdmin };
         await createUser($authStore.token!, payload);
       } else if (modalMode === 'edit' && editingUser) {
-        const payload: UserUpdate = {
-          scope,
-          is_active: formIsActive,
-          is_admin: formIsAdmin
-        };
+        const payload: UserUpdate = { scope, is_active: formIsActive, is_admin: formIsAdmin };
         if (formPassword) payload.password = formPassword;
         await updateUser($authStore.token!, editingUser.id, payload);
       }
       closeModal();
-      await loadUsers();
+      reloadUsers();
     } catch (e: unknown) {
       formError = e instanceof Error ? e.message : 'Action failed';
     } finally {
@@ -121,12 +109,16 @@
     try {
       await deleteUser($authStore.token!, deleteTarget.id);
       deleteTarget = null;
-      await loadUsers();
+      reloadUsers();
     } catch (e: unknown) {
       actionError = e instanceof Error ? e.message : 'Delete failed';
     } finally {
       deleteLoading = false;
     }
+  }
+
+  function hasScopeFilters(scope: { filters: Record<string, string[]> }): boolean {
+    return Object.keys(scope.filters).length > 0;
   }
 </script>
 
@@ -147,7 +139,7 @@
     <div class="card bg-red-50 border-red-200 text-red-700 text-sm">{actionError}</div>
   {/if}
 
-  {#if loading}
+  {#await usersPromise}
     <div class="card flex items-center justify-center h-40 text-gray-400">
       <svg class="animate-spin h-8 w-8 mr-2" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -155,9 +147,7 @@
       </svg>
       Loading users…
     </div>
-  {:else if error}
-    <div class="card bg-red-50 border-red-200 text-red-700">{error}</div>
-  {:else}
+  {:then users}
     <div class="card p-0 overflow-hidden">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50">
@@ -166,7 +156,7 @@
             <th class="px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs">Username</th>
             <th class="px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs">Status</th>
             <th class="px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs">Role</th>
-            <th class="px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs">Scope Filters</th>
+            <th class="px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs">Scope</th>
             <th class="px-6 py-3 text-right font-semibold text-gray-600 uppercase tracking-wider text-xs">Actions</th>
           </tr>
         </thead>
@@ -189,8 +179,27 @@
                   <span class="badge badge-yellow">User</span>
                 {/if}
               </td>
-              <td class="px-6 py-4 text-gray-500 text-xs font-mono max-w-xs truncate">
-                {JSON.stringify(user.scope.filters) === '{}' ? '— no filters —' : JSON.stringify(user.scope.filters)}
+              <td class="px-6 py-4">
+                {#if hasScopeFilters(user.scope)}
+                  <!-- Native HTML popover for filter details (no JS library needed) -->
+                  <button
+                    class="text-xs text-blue-600 hover:underline cursor-pointer"
+                    popovertarget="scope-{user.id}"
+                    title="Click to see filter details"
+                  >
+                    {Object.keys(user.scope.filters).length} filter{Object.keys(user.scope.filters).length !== 1 ? 's' : ''}
+                  </button>
+                  <div id="scope-{user.id}" popover class="rounded-lg border border-gray-200 shadow-lg bg-white p-3 text-xs max-w-xs z-50">
+                    <p class="font-semibold text-gray-700 mb-2">Scope filters for {user.username}</p>
+                    <ul class="space-y-1">
+                      {#each Object.entries(user.scope.filters) as [col, vals]}
+                        <li><span class="font-mono font-medium text-gray-600">{col}:</span> <span class="text-gray-800">{vals.join(', ')}</span></li>
+                      {/each}
+                    </ul>
+                  </div>
+                {:else}
+                  <span class="text-gray-400 text-xs italic">— no restrictions —</span>
+                {/if}
               </td>
               <td class="px-6 py-4 text-right">
                 <div class="flex items-center justify-end gap-2">
@@ -209,7 +218,11 @@
         </tbody>
       </table>
     </div>
-  {/if}
+  {:catch error}
+    <div class="card bg-red-50 border-red-200 text-red-700">
+      Failed to load users: {error instanceof Error ? error.message : String(error)}
+    </div>
+  {/await}
 </div>
 
 <!-- Create/Edit Modal -->

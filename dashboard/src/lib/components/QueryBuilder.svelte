@@ -3,9 +3,10 @@
   import {
     queryFrequency,
     queryMeans,
+    queryWaveChange,
     ApiError
   } from '$lib/api';
-  import type { FrequencyResult, MeansResult, QueryFilter } from '$lib/api';
+  import type { FrequencyResult, MeansResult, WaveChangeResult, QueryFilter } from '$lib/api';
   import ChartCard from './ChartCard.svelte';
   import { frequencyToChartData, meansToChartData } from '$lib/chartUtils';
 
@@ -25,22 +26,24 @@
   let { columns }: Props = $props();
 
   // Available columns (intersection with whitelists)
-  const availableCategorical = $derived(
-    CATEGORICAL_COLS.filter((c) => columns.includes(c))
-  );
+  const availableCategorical = $derived(CATEGORICAL_COLS.filter((c) => columns.includes(c)));
   const availableNumeric = $derived(NUMERIC_COLS.filter((c) => columns.includes(c)));
+  const availableWaves = $derived(
+    columns.includes('wave') ? ['1', '2', '3', '4', '5'] : []
+  );
 
-  type QueryType = 'frequency' | 'means';
+  type QueryType = 'frequency' | 'means' | 'wave-change';
   let queryType = $state<QueryType>('frequency');
   let groupBy = $state<string[]>([]);
   let valueColumns = $state<string[]>([]);
   let valueColumn = $state('');
+  let fromWave = $state('1');
+  let toWave = $state('2');
   let filters = $state<QueryFilter[]>([]);
 
-  let loading = $state(false);
-  let error = $state<string | null>(null);
-  let freqResult = $state<FrequencyResult | null>(null);
-  let meansResult = $state<MeansResult | null>(null);
+  // The current query promise — null means no query submitted yet
+  type QueryResult = FrequencyResult | MeansResult | WaveChangeResult;
+  let queryPromise = $state<Promise<QueryResult> | null>(null);
 
   function toggleGroupBy(col: string) {
     if (groupBy.includes(col)) {
@@ -66,83 +69,102 @@
     filters = filters.filter((_, i) => i !== idx);
   }
 
-  async function runQuery() {
+  function runQuery() {
     const token = $authStore.token;
     if (!token) return;
-    error = null;
-    loading = true;
-    freqResult = null;
-    meansResult = null;
-    try {
-      if (queryType === 'frequency') {
-        freqResult = await queryFrequency(token, {
-          group_by: groupBy,
-          filters,
-          value_column: valueColumn || undefined
-        });
-      } else {
-        meansResult = await queryMeans(token, {
-          group_by: groupBy,
-          value_columns: valueColumns,
-          filters
-        });
-      }
-    } catch (e: unknown) {
-      if (e instanceof ApiError) {
-        error = `API error ${e.status}: ${e.message}`;
-      } else {
-        error = e instanceof Error ? e.message : 'Query failed';
-      }
-    } finally {
-      loading = false;
+
+    if (queryType === 'frequency') {
+      queryPromise = queryFrequency(token, {
+        group_by: groupBy,
+        filters,
+        value_column: valueColumn || undefined
+      });
+    } else if (queryType === 'means') {
+      queryPromise = queryMeans(token, {
+        group_by: groupBy,
+        value_columns: valueColumns,
+        filters
+      });
+    } else {
+      queryPromise = queryWaveChange(token, {
+        from_wave: fromWave,
+        to_wave: toWave,
+        value_columns: valueColumns,
+        group_by: groupBy,
+        filters
+      });
     }
   }
 
-  const freqChart = $derived(
-    freqResult ? frequencyToChartData(freqResult, groupBy) : null
-  );
-  const meansChart = $derived(
-    meansResult ? meansToChartData(meansResult, groupBy) : null
-  );
   const isValid = $derived(
-    groupBy.length > 0 &&
-    (queryType === 'frequency' || valueColumns.length > 0)
+    (queryType === 'frequency' && true) ||
+    ((queryType === 'means' || queryType === 'wave-change') && valueColumns.length > 0)
   );
+
+  function isFrequencyResult(r: QueryResult): r is FrequencyResult {
+    return 'csv' in r && !('count_csv' in r);
+  }
+  function hasCsv(r: QueryResult): r is MeansResult | WaveChangeResult {
+    return 'count_csv' in r;
+  }
 </script>
 
 <div class="space-y-6">
   <!-- Query type selector -->
   <div class="card">
-    <div class="flex gap-4">
+    <div class="flex flex-wrap gap-4">
       <label class="flex items-center gap-2 cursor-pointer">
-        <input
-          type="radio"
-          name="queryType"
-          value="frequency"
-          bind:group={queryType}
-          class="text-blue-600"
-        />
-        <span class="font-medium">Frequency Table</span>
-        <span class="text-xs text-gray-500">(count distinct students)</span>
+        <input type="radio" name="queryType" value="frequency" bind:group={queryType} class="text-blue-600" />
+        <span class="font-medium">Frequency</span>
+        <span class="text-xs text-gray-500">(count students)</span>
       </label>
       <label class="flex items-center gap-2 cursor-pointer">
-        <input
-          type="radio"
-          name="queryType"
-          value="means"
-          bind:group={queryType}
-          class="text-blue-600"
-        />
-        <span class="font-medium">Means Table</span>
-        <span class="text-xs text-gray-500">(average questionnaire scores)</span>
+        <input type="radio" name="queryType" value="means" bind:group={queryType} class="text-blue-600" />
+        <span class="font-medium">Means</span>
+        <span class="text-xs text-gray-500">(average scores)</span>
       </label>
+      {#if availableWaves.length > 0}
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="queryType" value="wave-change" bind:group={queryType} class="text-blue-600" />
+          <span class="font-medium">Wave Change</span>
+          <span class="text-xs text-gray-500">(within-person longitudinal change)</span>
+        </label>
+      {/if}
     </div>
   </div>
 
+  <!-- Wave Change: wave selectors -->
+  {#if queryType === 'wave-change'}
+    <div class="card space-y-3">
+      <h3 class="font-semibold text-gray-700">Waves</h3>
+      <p class="text-xs text-gray-500">
+        Computes <em>(value at To wave) - (value at From wave)</em> for each student, then takes the mean.
+      </p>
+      <div class="flex items-center gap-4">
+        <div>
+          <label class="label text-xs" for="from-wave">From wave</label>
+          <select id="from-wave" class="input w-28" bind:value={fromWave}>
+            {#each availableWaves as w}
+              <option value={w}>{w}</option>
+            {/each}
+          </select>
+        </div>
+        <span class="text-gray-400 mt-5">→</span>
+        <div>
+          <label class="label text-xs" for="to-wave">To wave</label>
+          <select id="to-wave" class="input w-28" bind:value={toWave}>
+            {#each availableWaves as w}
+              <option value={w}>{w}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- Group by -->
   <div class="card space-y-3">
-    <h3 class="font-semibold text-gray-700">Group By</h3>
-    <p class="text-xs text-gray-500">Select one or more categorical columns.</p>
+    <h3 class="font-semibold text-gray-700">Group By <span class="text-gray-400 font-normal">(optional for frequency)</span></h3>
     <div class="flex flex-wrap gap-2">
       {#each availableCategorical as col}
         <button
@@ -161,11 +183,11 @@
     </div>
   </div>
 
-  <!-- Value columns (means) or value_column (frequency pivot) -->
-  {#if queryType === 'means'}
+  <!-- Value columns (means / wave-change) or pivot (frequency) -->
+  {#if queryType === 'means' || queryType === 'wave-change'}
     <div class="card space-y-3">
       <h3 class="font-semibold text-gray-700">Value Columns</h3>
-      <p class="text-xs text-gray-500">Select columns to average.</p>
+      <p class="text-xs text-gray-500">Select columns to {queryType === 'means' ? 'average' : 'compare across waves'}.</p>
       <div class="flex flex-wrap gap-2">
         {#each availableNumeric as col}
           <button
@@ -186,9 +208,7 @@
   {:else}
     <div class="card space-y-3">
       <h3 class="font-semibold text-gray-700">Pivot Column <span class="text-gray-400 font-normal">(optional)</span></h3>
-      <p class="text-xs text-gray-500">
-        Cross-tabulate by this column (creates one column per unique value).
-      </p>
+      <p class="text-xs text-gray-500">Cross-tabulate by this column (creates one column per unique value).</p>
       <select class="input max-w-xs" bind:value={valueColumn}>
         <option value="">— None (simple count) —</option>
         {#each availableCategorical as col}
@@ -231,13 +251,7 @@
               bind:value={filter.value as string}
               placeholder="value"
             />
-            <button
-              class="text-red-400 hover:text-red-600 p-1"
-              onclick={() => removeFilter(fi)}
-              aria-label="Remove filter"
-            >
-              ×
-            </button>
+            <button class="text-red-400 hover:text-red-600 p-1" onclick={() => removeFilter(fi)} aria-label="Remove filter">×</button>
           </div>
         {/each}
       </div>
@@ -246,57 +260,42 @@
 
   <!-- Submit -->
   <div class="flex items-center gap-3">
-    <button
-      class="btn-primary"
-      onclick={runQuery}
-      disabled={!isValid || loading}
-    >
-      {#if loading}
-        <svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-        </svg>
-        Running…
-      {:else}
-        Run Query
-      {/if}
+    <button class="btn-primary" onclick={runQuery} disabled={!isValid}>
+      Run Query
     </button>
     {#if !isValid}
-      <p class="text-sm text-gray-400">
-        {groupBy.length === 0
-          ? 'Select at least one Group By column.'
-          : 'Select at least one Value Column.'}
-      </p>
+      <p class="text-sm text-gray-400">Select at least one Value Column.</p>
     {/if}
   </div>
 
-  <!-- Error -->
-  {#if error}
-    <div class="card bg-red-50 border-red-200 text-red-700 text-sm">{error}</div>
-  {/if}
-
-  <!-- Results -->
-  {#if freqResult && freqChart}
-    <ChartCard
-      title="Frequency Query Result"
-      type="bar"
-      data={freqChart.data}
-      options={freqChart.options}
-      csv={freqResult.csv}
-      suppressions={freqResult.suppressions}
-      filename="frequency-result"
-    />
-  {/if}
-
-  {#if meansResult && meansChart}
-    <ChartCard
-      title="Means Query Result"
-      type="bar"
-      data={meansChart.data}
-      options={meansChart.options}
-      csv={meansResult.csv}
-      suppressions={meansResult.suppressions}
-      filename="means-result"
-    />
+  <!-- Results via {#await} -->
+  {#if queryPromise !== null}
+    {#await queryPromise}
+      <div class="card flex items-center justify-center h-32 text-gray-400">
+        <svg class="animate-spin h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        Running query…
+      </div>
+    {:then result}
+      {@const freq = queryType === 'frequency' ? result as FrequencyResult : null}
+      {@const chart = freq
+        ? frequencyToChartData(freq, groupBy)
+        : meansToChartData(result as MeansResult | WaveChangeResult, groupBy)}
+      <ChartCard
+        title="{queryType === 'frequency' ? 'Frequency' : queryType === 'means' ? 'Means' : `Wave ${fromWave} → ${toWave} Change`} Result"
+        type="bar"
+        data={chart.data}
+        options={chart.options}
+        csv={result.csv}
+        suppressions={result.suppressions}
+        filename="{queryType}-result"
+      />
+    {:catch error}
+      <div class="card bg-red-50 border-red-200 text-red-700 text-sm">
+        {error instanceof ApiError ? `API error ${error.status}: ${error.message}` : error instanceof Error ? error.message : 'Query failed'}
+      </div>
+    {/await}
   {/if}
 </div>

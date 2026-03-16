@@ -1,4 +1,7 @@
-const API_BASE = '/api';
+import { env } from '$env/dynamic/public';
+
+// Can be overridden by setting PUBLIC_API_BASE env var (e.g. http://localhost:8000)
+const API_BASE = env.PUBLIC_API_BASE ?? '/api';
 
 export class ApiError extends Error {
   constructor(
@@ -16,14 +19,9 @@ async function apiFetch<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, options);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // ignore JSON parse errors
-    }
-    throw new ApiError(res.status, detail);
+    // The API always returns JSON error details; let any parse error propagate naturally
+    const body = await res.json() as { detail?: string };
+    throw new ApiError(res.status, body.detail ?? res.statusText);
   }
   return res.json() as Promise<T>;
 }
@@ -57,12 +55,26 @@ export interface MeansQuery {
   filters: QueryFilter[];
 }
 
+export interface WaveChangeQuery {
+  from_wave: string;
+  to_wave: string;
+  value_columns: string[];
+  group_by?: string[];
+  filters?: QueryFilter[];
+}
+
 export interface FrequencyResult {
   csv: string;
   suppressions: Record<string, Record<number, string>>;
 }
 
 export interface MeansResult {
+  csv: string;
+  count_csv: string;
+  suppressions: Record<string, Record<number, string>>;
+}
+
+export interface WaveChangeResult {
   csv: string;
   count_csv: string;
   suppressions: Record<string, Record<number, string>>;
@@ -104,14 +116,8 @@ export async function login(username: string, password: string): Promise<Token> 
     body: body.toString()
   });
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const j = await res.json();
-      detail = j.detail ?? detail;
-    } catch {
-      // ignore
-    }
-    throw new ApiError(res.status, detail);
+    const j = await res.json() as { detail?: string };
+    throw new ApiError(res.status, j.detail ?? res.statusText);
   }
   return res.json() as Promise<Token>;
 }
@@ -147,6 +153,29 @@ export async function queryMeans(token: string, query: MeansQuery): Promise<Mean
   });
 }
 
+export async function queryWaveChange(
+  token: string,
+  query: WaveChangeQuery
+): Promise<WaveChangeResult> {
+  return apiFetch<WaveChangeResult>('/query/wave-change', {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(query)
+  });
+}
+
+// ─── Health ───────────────────────────────────────────────────────────────────
+
+/** Returns true if the API is reachable and healthy. */
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 export async function listUsers(token: string): Promise<User[]> {
@@ -175,13 +204,7 @@ export async function deleteUser(token: string, id: number): Promise<void> {
     headers: authHeaders(token)
   });
   if (!res.ok && res.status !== 204) {
-    let detail = res.statusText;
-    try {
-      const j = await res.json();
-      detail = j.detail ?? detail;
-    } catch {
-      // ignore
-    }
-    throw new ApiError(res.status, detail);
+    const j = await res.json() as { detail?: string };
+    throw new ApiError(res.status, j.detail ?? res.statusText);
   }
 }

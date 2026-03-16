@@ -41,4 +41,8 @@ services:
       - api
 
 volumes:
+  # Named Docker volume — persists the SQLite auth DB and data files inside Docker.
+  # To seed data, copy files into the running container:
+  #   docker compose cp ./data/data.csv api:/data/data.csv
+  # The local ./data/ directory (if you create one) is gitignored.
   api_data:

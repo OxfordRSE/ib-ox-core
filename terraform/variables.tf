@@ -45,8 +45,36 @@ variable "desired_count" {
   default     = 1
 }
 
-variable "certificate_arn" {
-  description = "ARN of ACM certificate for HTTPS (leave empty for HTTP-only)"
+variable "domain_name" {
+  description = <<-EOT
+    Custom domain name for the application (e.g. "dashboard.example.ac.uk").
+    Leave empty to skip Route 53 / ACM certificate setup.
+
+    Deployment process:
+    1. First deploy with domain_name = "" to create the ALB and get its DNS name.
+    2. Request an ACM certificate in the AWS Console for this domain (DNS validation).
+    3. In Route 53, create a CNAME record: <domain_name> → <alb_dns_name>.
+    4. Approve the ACM DNS validation record in Route 53.
+    5. Re-deploy with domain_name set and certificate_arn pointing to the validated cert.
+  EOT
   type        = string
   default     = ""
+}
+
+variable "certificate_arn" {
+  description = <<-EOT
+    ARN of a validated ACM certificate for the domain_name.
+    Required when domain_name is set. The deployment will fail if domain_name is
+    provided without a valid certificate_arn, to ensure HTTPS is always enforced.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      var.domain_name == "" ||
+      (var.domain_name != "" && var.certificate_arn != "")
+    )
+    error_message = "certificate_arn must be set when domain_name is provided. Request an ACM certificate and validate it via DNS before re-deploying."
+  }
 }

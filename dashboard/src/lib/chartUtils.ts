@@ -1,4 +1,4 @@
-import type { FrequencyResult, MeansResult } from './api';
+import type { FrequencyResult, MeansResult, WaveChangeResult } from './api';
 import { parseCSV } from './csvUtils';
 
 const PALETTE = [
@@ -182,4 +182,14 @@ export function meansToChartData(result: MeansResult, groupBy: string[]): ChartO
     data: { labels, datasets },
     options: baseOptions('Mean')
   };
+}
+
+/**
+ * Alias: WaveChangeResult has the same shape as MeansResult for charting.
+ */
+export function waveChangeToChartData(
+  result: WaveChangeResult,
+  groupBy: string[]
+): ChartOutput {
+  return meansToChartData(result as MeansResult, groupBy);
 }

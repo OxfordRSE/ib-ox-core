@@ -3,7 +3,8 @@
   import { authStore, isAdmin } from '$lib/stores';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { checkHealth } from '$lib/api';
 
   interface Props {
     children: import('svelte').Snippet;
@@ -14,6 +15,15 @@
 
   const publicRoutes = ['/login'];
 
+  // API health state
+  type HealthStatus = 'unknown' | 'ok' | 'down';
+  let apiHealth = $state<HealthStatus>('unknown');
+  let healthInterval: ReturnType<typeof setInterval> | null = null;
+
+  async function pollHealth() {
+    apiHealth = (await checkHealth()) ? 'ok' : 'down';
+  }
+
   onMount(() => {
     const unsubscribe = authStore.subscribe(($auth) => {
       const path = $page.url.pathname;
@@ -21,7 +31,15 @@
         goto('/login');
       }
     });
-    return unsubscribe;
+
+    // Poll API health every 30 seconds
+    pollHealth();
+    healthInterval = setInterval(pollHealth, 30_000);
+
+    return () => {
+      unsubscribe();
+      if (healthInterval !== null) clearInterval(healthInterval);
+    };
   });
 
   function logout() {
@@ -70,6 +88,28 @@
           </div>
 
           <div class="flex items-center gap-3">
+            <!-- API health indicator -->
+            <span
+              class="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full
+                {apiHealth === 'ok' ? 'bg-green-50 text-green-700' : apiHealth === 'down' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-400'}"
+              title="API status: {apiHealth}"
+            >
+              {#if apiHealth === 'ok'}
+                <span class="h-1.5 w-1.5 rounded-full bg-green-500 inline-block"></span>
+                API
+              {:else if apiHealth === 'down'}
+                <!-- Unplugged icon -->
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M9 9l6 6M3 3l18 18" />
+                </svg>
+                API down
+              {:else}
+                <span class="h-1.5 w-1.5 rounded-full bg-gray-300 inline-block animate-pulse"></span>
+                API
+              {/if}
+            </span>
+
             {#if $authStore.user}
               <div class="hidden md:flex items-center gap-2">
                 <span class="text-sm text-gray-500">
@@ -105,6 +145,10 @@
           {#if $authStore.user}
             <div class="px-3 py-2 text-sm text-gray-500">{$authStore.user.username}</div>
           {/if}
+          <!-- API health in mobile menu -->
+          <div class="px-3 py-2 text-xs text-gray-400">
+            API: {apiHealth === 'ok' ? '✓ Online' : apiHealth === 'down' ? '✗ Offline' : '… checking'}
+          </div>
         </div>
       {/if}
     </nav>
@@ -115,3 +159,4 @@
     </main>
   </div>
 {/if}
+

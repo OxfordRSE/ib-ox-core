@@ -108,16 +108,23 @@ check_lockfile() {
   local bucket="$1"
   local remote_lockfile="/tmp/ib-ox-core-remote-lock.json"
 
+  _lockfile_summary() {
+    local f="$1"
+    local label="$2"
+    local size
+    size="$(du -sh "${f}" 2>/dev/null | cut -f1)"
+    local mtime
+    mtime="$(date -r "${f}" '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || stat -c '%y' "${f}" 2>/dev/null | cut -d. -f1)"
+    echo "  ${label}: ${size}, last modified ${mtime}"
+  }
+
   if aws s3 cp "s3://${bucket}/${S3_LOCKFILE_KEY}" "${remote_lockfile}" 2>/dev/null; then
     if [[ -f "${LOCKFILE_LOCAL}" ]]; then
       if ! diff -q "${LOCKFILE_LOCAL}" "${remote_lockfile}" &>/dev/null; then
         warn "Local lockfile differs from remote lockfile!"
         echo ""
-        echo "  Remote lockfile (from S3):"
-        jq '.' "${remote_lockfile}" | sed 's/^/    /'
-        echo ""
-        echo "  Local lockfile:"
-        jq '.' "${LOCKFILE_LOCAL}" | sed 's/^/    /'
+        _lockfile_summary "${remote_lockfile}" "Remote (S3)"
+        _lockfile_summary "${LOCKFILE_LOCAL}"  "Local      "
         echo ""
         echo "Which lockfile should be kept?"
         echo "  1) Keep remote (download from S3 to local)"
@@ -202,20 +209,12 @@ terraform_apply() {
     -backend-config="region=${AWS_REGION}" \
     -reconfigure
 
-  info "Planning Terraform changes..."
-  terraform -chdir="${TERRAFORM_DIR}" plan \
+  info "Applying Terraform changes (Terraform will prompt for confirmation)..."
+  terraform -chdir="${TERRAFORM_DIR}" apply \
     -var="image_tag=${image_tag}" \
     -var="api_secret_key=${IB_OX_SECRET_KEY:?IB_OX_SECRET_KEY env var required}" \
-    -var="aws_region=${AWS_REGION}" \
-    -out=/tmp/ib-ox-tfplan
-
-  if confirm "Apply the above Terraform plan?"; then
-    terraform -chdir="${TERRAFORM_DIR}" apply /tmp/ib-ox-tfplan
-    info "Terraform apply complete."
-  else
-    warn "Terraform apply cancelled."
-    exit 0
-  fi
+    -var="aws_region=${AWS_REGION}"
+  info "Terraform apply complete."
 }
 
 # ─── 7. Update lockfile ──────────────────────────────────────────────────────

@@ -231,6 +231,5 @@ terraform/.terraform/
 *.db-shm
 *.db-wal
 
-# Data files
-data/*.csv
-data/*.parquet
+# Local data directory (used to seed Docker volume; never commit real data)
+data/
