@@ -21,7 +21,10 @@ services:
       - IB_OX_DATABASE_URL=sqlite:////data/auth.db
       - IB_OX_CORS_ORIGINS=["http://localhost:5173"]
     volumes:
-      - api_data:/data
+      # Bind mount so data files survive container rebuilds and are accessible
+      # on the host. Contents are gitignored (see data/.gitignore); only the
+      # empty placeholder data/.gitkeep is committed.
+      - ./data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -39,10 +42,3 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-
-volumes:
-  # Named Docker volume — persists the SQLite auth DB and data files inside Docker.
-  # To seed data, copy files into the running container:
-  #   docker compose cp ./data/data.csv api:/data/data.csv
-  # The local ./data/ directory (if you create one) is gitignored.
-  api_data:

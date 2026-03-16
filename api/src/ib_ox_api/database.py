@@ -37,17 +37,19 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def _alembic_ini_path() -> Path:
     """Find alembic.ini by searching upward from this file's location.
 
-    Searches: package dir → src/ → api/ → repo root.
-    This is resilient to installed-package path variations.
+    Walks up to 5 parent directories. Resilient to installed-package path variations.
     """
     here = Path(__file__).parent
-    for candidate in (here, here.parent, here.parent.parent, here.parent.parent.parent):
-        ini = candidate / "alembic.ini"
+    level = 0
+    while level < 5:
+        ini = here / "alembic.ini"
         if ini.exists():
             return ini
+        here = here.parent
+        level += 1
     raise FileNotFoundError(
-        "alembic.ini not found. Ensure it is present in the api/ directory "
-        "or set ALEMBIC_INI_PATH environment variable."
+        "alembic.ini not found within 5 parent directories of database.py. "
+        "Ensure it is present in the api/ directory."
     )
 
 

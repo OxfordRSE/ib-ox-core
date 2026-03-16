@@ -231,5 +231,6 @@ terraform/.terraform/
 *.db-shm
 *.db-wal
 
-# Local data directory (used to seed Docker volume; never commit real data)
-data/
+# Local data directory — contents are ignored, but the directory is tracked via .gitkeep
+data/*
+!data/.gitkeep

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { authStore, isAdmin } from '$lib/stores';
-  import { listUsers, createUser, updateUser, deleteUser, ApiError } from '$lib/api';
+  import { listUsers, createUser, updateUser, deleteUser, queryFrequency } from '$lib/api';
   import type { User, UserCreate, UserUpdate } from '$lib/api';
 
   // Redirect non-admins
@@ -22,6 +22,31 @@
 
   function reloadUsers() {
     listVersion += 1;
+  }
+
+  // ─── Scope student count ──────────────────────────────────────────────────────
+
+  /**
+   * Query the ungrouped frequency endpoint with the user's scope applied as
+   * explicit filters (using the admin's token). Returns the student count
+   * visible from that user's perspective, or null on error.
+   */
+  async function loadScopeCount(token: string, user: User): Promise<number | null> {
+    const scopeFilters = Object.entries(user.scope.filters).map(([col, vals]) => ({
+      column: col,
+      op: 'in' as const,
+      value: vals
+    }));
+    try {
+      const result = await queryFrequency(token, { group_by: [], filters: scopeFilters });
+      const lines = result.csv.trim().split('\n');
+      // Expect header "n" on line 0, value on line 1
+      if (lines.length < 2 || lines[0].trim() !== 'n') return null;
+      const n = Number(lines[1].trim());
+      return isNaN(n) ? null : n;
+    } catch {
+      return null;
+    }
   }
 
   // ─── Modal state ─────────────────────────────────────────────────────────────
@@ -180,26 +205,37 @@
                 {/if}
               </td>
               <td class="px-6 py-4">
-                {#if hasScopeFilters(user.scope)}
-                  <!-- Native HTML popover for filter details (no JS library needed) -->
-                  <button
-                    class="text-xs text-blue-600 hover:underline cursor-pointer"
-                    popovertarget="scope-{user.id}"
-                    title="Click to see filter details"
-                  >
-                    {Object.keys(user.scope.filters).length} filter{Object.keys(user.scope.filters).length !== 1 ? 's' : ''}
-                  </button>
-                  <div id="scope-{user.id}" popover class="rounded-lg border border-gray-200 shadow-lg bg-white p-3 text-xs max-w-xs z-50">
-                    <p class="font-semibold text-gray-700 mb-2">Scope filters for {user.username}</p>
-                    <ul class="space-y-1">
-                      {#each Object.entries(user.scope.filters) as [col, vals]}
-                        <li><span class="font-mono font-medium text-gray-600">{col}:</span> <span class="text-gray-800">{vals.join(', ')}</span></li>
-                      {/each}
-                    </ul>
-                  </div>
-                {:else}
-                  <span class="text-gray-400 text-xs italic">— no restrictions —</span>
-                {/if}
+                <!-- Load the student count visible to this user's scope -->
+                {#await loadScopeCount($authStore.token!, user)}
+                  <span class="text-gray-400 text-xs animate-pulse">counting…</span>
+                {:then count}
+                  {#if hasScopeFilters(user.scope)}
+                    <!-- Show count as a clickable button that opens the filter popover -->
+                    <button
+                      class="text-xs text-blue-600 hover:underline cursor-pointer"
+                      popovertarget="scope-{user.id}"
+                      title="Click to see scope filter details"
+                    >
+                      {count !== null ? `${count} student${count !== 1 ? 's' : ''}` : '—'}
+                    </button>
+                    <!-- Native HTML popover listing the actual filters -->
+                    <div id="scope-{user.id}" popover class="rounded-lg border border-gray-200 shadow-lg bg-white p-3 text-xs max-w-xs z-50">
+                      <p class="font-semibold text-gray-700 mb-2">Scope filters for {user.username}</p>
+                      <ul class="space-y-1">
+                        {#each Object.entries(user.scope.filters) as [col, vals]}
+                          <li><span class="font-mono font-medium text-gray-600">{col}:</span> <span class="text-gray-800">{vals.join(', ')}</span></li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {:else}
+                    <!-- No filters — show total student count, non-clickable -->
+                    <span class="text-xs text-gray-500">
+                      {count !== null ? `${count} student${count !== 1 ? 's' : ''} (all)` : '— all —'}
+                    </span>
+                  {/if}
+                {:catch}
+                  <span class="text-gray-400 text-xs italic">—</span>
+                {/await}
               </td>
               <td class="px-6 py-4 text-right">
                 <div class="flex items-center justify-end gap-2">
