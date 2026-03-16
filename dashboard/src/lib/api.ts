@@ -90,6 +90,7 @@ export interface User {
   scope: UserScope;
   is_active: boolean;
   is_admin: boolean;
+  student_count: number | null;
 }
 
 export interface UserCreate {

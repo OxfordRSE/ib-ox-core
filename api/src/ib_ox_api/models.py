@@ -60,6 +60,7 @@ class UserRead(BaseModel):
     scope: UserScope
     is_active: bool
     is_admin: bool = False
+    student_count: Optional[int] = None
     model_config = {"from_attributes": True}
 
 

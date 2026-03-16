@@ -34,6 +34,7 @@ from ib_ox_api.models import (
     WaveChangeResult,
 )
 from ib_ox_api.query import (
+    apply_user_scope,
     execute_frequency_query,
     execute_means_query,
     execute_wave_change_query,
@@ -41,6 +42,7 @@ from ib_ox_api.query import (
     validate_means_query,
     validate_wave_change_query,
 )
+from ib_ox_api.suppression import count_students
 from ib_ox_api.settings import settings
 
 
@@ -177,16 +179,20 @@ def admin_list_users(
     db: Session = Depends(get_db),
 ) -> list[UserRead]:
     users = list_users(db)
+    df = datastore.get_dataframe()
     result = []
     for u in users:
         scope_data = scope_json_to_dict(u.scope_json)
+        user_scope = UserScope(filters=scope_data.get("filters", {}))
+        scoped_df = apply_user_scope(df, user_scope)
         result.append(
             UserRead(
                 id=u.id,
                 username=u.username,
-                scope=UserScope(filters=scope_data.get("filters", {})),
+                scope=user_scope,
                 is_active=u.is_active,
                 is_admin=u.is_admin,
+                student_count=count_students(scoped_df),
             )
         )
     return result
