@@ -150,6 +150,54 @@ def test_means_query_invalid_group_by(client):
 
 
 # ---------------------------------------------------------------------------
+# Wave-change query
+# ---------------------------------------------------------------------------
+
+
+def test_wave_change_query_basic(client):
+    """Wave 1 → 2 change for phq9_1, no group_by."""
+    payload = {"from_wave": "1", "to_wave": "2", "value_columns": ["phq9_1"]}
+    response = client.post("/query/wave-change", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "csv" in data
+    assert "count_csv" in data
+    assert "suppressions" in data
+
+
+def test_wave_change_query_with_group_by(client):
+    """Wave 1 → 2 change grouped by school."""
+    payload = {
+        "from_wave": "1",
+        "to_wave": "2",
+        "value_columns": ["phq9_1"],
+        "group_by": ["school"],
+    }
+    response = client.post("/query/wave-change", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    df = pd.read_csv(io.StringIO(response.json()["csv"]))
+    assert "school" in df.columns
+    assert "phq9_1" in df.columns
+
+
+def test_wave_change_query_invalid_value_column(client):
+    payload = {"from_wave": "1", "to_wave": "2", "value_columns": ["bad_col"]}
+    response = client.post("/query/wave-change", json=payload)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_wave_change_query_invalid_group_by(client):
+    payload = {
+        "from_wave": "1",
+        "to_wave": "2",
+        "value_columns": ["phq9_1"],
+        "group_by": ["uid"],
+    }
+    response = client.post("/query/wave-change", json=payload)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+# ---------------------------------------------------------------------------
 # Suppression logic (unit tests)
 # ---------------------------------------------------------------------------
 
@@ -158,6 +206,49 @@ def test_suppression_count_students(sample_df):
     from ib_ox_api.suppression import count_students
 
     assert count_students(sample_df) == 10
+
+
+def test_suppression_count_students_no_uid():
+    """count_students falls back to row count when uid column is absent."""
+    from ib_ox_api.suppression import count_students
+
+    no_uid_df = pd.DataFrame({"school": ["A", "B", "C"], "score": [1, 2, 3]})
+    assert count_students(no_uid_df) == 3
+
+
+def test_suppression_frequency_no_group_by_above_min_n(sample_df):
+    """Ungrouped frequency query should return a single total count."""
+    from ib_ox_api.suppression import suppress_frequency_table
+
+    result_df, suppressions = suppress_frequency_table(
+        sample_df, group_cols=[], value_col=None, min_n=5
+    )
+    assert len(result_df) == 1
+    assert "n" in result_df.columns
+    assert result_df["n"].iloc[0] == 10
+    assert suppressions == {}
+
+
+def test_suppression_frequency_no_group_by_below_min_n(tiny_df):
+    """Ungrouped total below min_n should be suppressed."""
+    from ib_ox_api.suppression import suppress_frequency_table
+
+    result_df, suppressions = suppress_frequency_table(
+        tiny_df, group_cols=[], value_col=None, min_n=5
+    )
+    assert result_df["n"].isna().all()
+    assert "n" in suppressions
+
+
+def test_frequency_query_no_group_by(client):
+    """Empty group_by returns a single row with total student count."""
+    response = client.post("/query/frequency", json={"group_by": []})
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    df = pd.read_csv(io.StringIO(data["csv"]))
+    assert len(df) == 1
+    assert "n" in df.columns
+
 
 
 def test_suppression_frequency_below_min_n(tiny_df):

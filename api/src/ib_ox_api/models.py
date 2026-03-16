@@ -19,6 +19,19 @@ class MeansResult(BaseModel):
     suppressions: dict[str, dict[int, SuppressionCode]]
 
 
+class WaveChangeResult(BaseModel):
+    """Result of a wave-change (within-person longitudinal change) query.
+
+    csv: means of per-student changes, one column per value_column.
+    count_csv: number of matched students per group.
+    suppressions: cells suppressed due to small N.
+    """
+
+    csv: str
+    count_csv: str
+    suppressions: dict[str, dict[int, SuppressionCode]]
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -76,12 +89,13 @@ class Filter(BaseModel):
 class FrequencyQuery(BaseModel):
     """Query for a frequency table.
 
-    group_by: columns to group by (must be whitelisted categorical columns)
+    group_by: columns to group by (must be whitelisted categorical columns).
+              May be empty to return a single total count.
     filters: additional filters to apply
     value_column: the column to count (optional; if omitted, count rows with distinct uid)
     """
 
-    group_by: list[str]
+    group_by: list[str] = Field(default_factory=list)
     filters: list[Filter] = Field(default_factory=list)
     value_column: Optional[str] = None
 
@@ -96,4 +110,27 @@ class MeansQuery(BaseModel):
 
     group_by: list[str]
     value_columns: list[str]
+    filters: list[Filter] = Field(default_factory=list)
+
+
+class WaveChangeQuery(BaseModel):
+    """Query for within-person longitudinal change between two waves.
+
+    For each student with data in both from_wave and to_wave, computes:
+        change = value_at_to_wave - value_at_from_wave
+
+    Then optionally groups by categorical columns and reports the mean change.
+    Suppression is applied based on the count of matched students per group.
+
+    from_wave: wave value to use as the baseline (e.g. "1")
+    to_wave: wave value to compare against (e.g. "3")
+    value_columns: numeric columns to compare (must be in NUMERIC_WHITELIST)
+    group_by: categorical columns for grouping (from the from_wave rows)
+    filters: additional filters applied before the comparison
+    """
+
+    from_wave: str
+    to_wave: str
+    value_columns: list[str]
+    group_by: list[str] = Field(default_factory=list)
     filters: list[Filter] = Field(default_factory=list)

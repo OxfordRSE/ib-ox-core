@@ -11,7 +11,7 @@ from ib_ox_api.auth import authenticate_user, create_access_token, get_current_u
 from ib_ox_api.data import datastore
 from ib_ox_api.database import (
     UserModel,
-    create_all,
+    run_migrations,
     create_user,
     delete_user,
     get_db,
@@ -30,12 +30,16 @@ from ib_ox_api.models import (
     UserRead,
     UserScope,
     UserUpdate,
+    WaveChangeQuery,
+    WaveChangeResult,
 )
 from ib_ox_api.query import (
     execute_frequency_query,
     execute_means_query,
+    execute_wave_change_query,
     validate_frequency_query,
     validate_means_query,
+    validate_wave_change_query,
 )
 from ib_ox_api.settings import settings
 
@@ -43,7 +47,7 @@ from ib_ox_api.settings import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.warn_insecure_defaults()
-    create_all()
+    run_migrations()
     datastore.startup()
     yield
     datastore.shutdown()
@@ -120,6 +124,28 @@ def means_query(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
     return execute_means_query(df, query, current_user.scope, settings.MIN_N)
+
+
+@app.post("/query/wave-change", response_model=WaveChangeResult, tags=["query"])
+def wave_change_query(
+    query: WaveChangeQuery,
+    current_user: UserRead = Depends(get_current_user),
+) -> WaveChangeResult:
+    """Compute within-person change between two waves.
+
+    For each student with data in both `from_wave` and `to_wave`, computes the
+    difference `(value at to_wave) - (value at from_wave)` for each value column.
+    The per-student differences are then optionally grouped and averaged.
+    Suppression is applied when fewer than `min_n` students contribute to a cell.
+    """
+    df = datastore.get_dataframe()
+    df_cols = set(df.columns)
+    try:
+        validate_wave_change_query(query, df_cols)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    return execute_wave_change_query(df, query, current_user.scope, settings.MIN_N)
 
 
 def _scope_to_json(scope: UserScope) -> str:

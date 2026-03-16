@@ -4,10 +4,15 @@ from ib_ox_api.models import SuppressionCode
 
 
 def count_students(df: pd.DataFrame) -> int:
-    """Count the number of distinct students (uid) in a DataFrame."""
-    if "uid" not in df.columns or df.empty:
+    """Count the number of distinct students (uid) in a DataFrame.
+
+    Falls back to counting rows when uid is not present.
+    """
+    if df.empty:
         return 0
-    return int(df["uid"].nunique())
+    if "uid" in df.columns:
+        return int(df["uid"].nunique())
+    return len(df)
 
 
 def suppress_frequency_table(
@@ -18,6 +23,7 @@ def suppress_frequency_table(
 ) -> tuple[pd.DataFrame, dict[str, dict[int, SuppressionCode]]]:
     """Compute a frequency table and suppress cells where distinct student count < min_n.
 
+    If group_cols is empty and value_col is None, return a single-row total count.
     If value_col is None, count distinct uids per group.
     If value_col is provided, produce a cross-tab of group_cols × value_col values
     where each cell contains the count of distinct students.
@@ -28,12 +34,21 @@ def suppress_frequency_table(
     suppressions: dict[str, dict[int, SuppressionCode]] = {}
 
     if value_col is None:
+        if not group_cols:
+            # Ungrouped total: return a single row with the total student count
+            n = count_students(df)
+            agg = pd.DataFrame({"n": [n if n >= min_n else float("nan")]})
+            if n < min_n:
+                suppressions["n"] = {0: SuppressionCode.SMALL_N}
+            return agg, suppressions
+
         # Simple count of distinct students per group combination
+        uid_col = "uid" if "uid" in df.columns else df.columns[0]
         agg = (
-            df.groupby(group_cols)["uid"]
+            df.groupby(group_cols)[uid_col]
             .nunique()
             .reset_index()
-            .rename(columns={"uid": "n"})
+            .rename(columns={uid_col: "n"})
         )
         for idx, row in agg.iterrows():
             if row["n"] < min_n:

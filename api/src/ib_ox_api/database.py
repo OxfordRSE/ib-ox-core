@@ -1,7 +1,10 @@
 import json
 from collections.abc import Generator
+from pathlib import Path
 from typing import Optional
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import Boolean, Column, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -31,9 +34,20 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def create_all() -> None:
-    """Create all database tables."""
-    Base.metadata.create_all(bind=engine)
+def _alembic_ini_path() -> Path:
+    """Return the path to alembic.ini, located two levels above this file's package."""
+    # database.py is at api/src/ib_ox_api/database.py
+    # alembic.ini is at api/alembic.ini  (3 parent dirs up from database.py)
+    return Path(__file__).parent.parent.parent / "alembic.ini"
+
+
+def run_migrations() -> None:
+    """Apply all pending Alembic migrations (used at application startup)."""
+    ini_path = _alembic_ini_path()
+    cfg = Config(str(ini_path))
+    # Override the URL from settings so env vars are respected
+    cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    command.upgrade(cfg, "head")
 
 
 def get_db() -> Generator[Session, None, None]:
