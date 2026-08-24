@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ deployment.domain }} — Glow Deploy{% endblock %}
 {% block content %}
+  <nav class="breadcrumbs">
+    <a href="/deployments">Deployments</a>
+    <span>{{ deployment.domain }}</span>
+  </nav>
   <h1>{{ deployment.domain }}</h1>
   <p><span class="badge">{{ deployment.state }} — {{ version_info.deployed_version or deployment.git_ref }} ({{ (deployment.git_commit or "")[:8] }})</span></p>
   <p class="links">
     <a href="/deployments/{{ deployment.domain }}/logs">Status &amp; logs</a>
-    <a href="/deployments">Back to deployments</a>
   </p>
 
   {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}

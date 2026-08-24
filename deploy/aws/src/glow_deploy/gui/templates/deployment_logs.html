@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ deployment.domain }} status — Glow Deploy{% endblock %}
 {% block content %}
+  <nav class="breadcrumbs">
+    <a href="/deployments">Deployments</a>
+    <a href="/deployments/{{ deployment.domain }}">{{ deployment.domain }}</a>
+    <span>Logs</span>
+  </nav>
   <h1>{{ deployment.domain }} — status</h1>
-  <p class="links"><a href="/deployments/{{ deployment.domain }}">Back</a></p>
 
   <p id="status-loading" class="text-muted">Checking server status…</p>
   <p id="status-error" class="alert" role="alert" hidden></p>
