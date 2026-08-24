@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Logging configuration
     LOG_LEVEL: str = "INFO"  # Log level for glow_api module
     LOG_UVICORN_ACCESS: str = (
-        "INFO"  # Log level for uvicorn.access (endpoint access logs)
+        "WARNING"  # Log level for uvicorn.access; duplicates our own request_completed logs
     )
     LOG_UVICORN: str = "INFO"  # Log level for uvicorn.error (server logs)
 

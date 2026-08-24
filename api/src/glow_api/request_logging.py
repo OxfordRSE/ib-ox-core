@@ -89,6 +89,8 @@ class RequestLoggingMiddleware:
             if error_fields is not None:
                 log_fields["error"] = error_fields
                 log.error("request_failed", **log_fields)
+            elif route_path == "/health":
+                log.debug("request_completed", **log_fields)
             else:
                 log.info("request_completed", **log_fields)
 
