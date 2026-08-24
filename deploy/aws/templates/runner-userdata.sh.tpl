@@ -60,6 +60,7 @@ EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
   -a append-config \
   -m ec2 \
+  -s \
   -c file:$${cloud_glow_config}
 
 echo "[PROGRESS] Configure docker logging"

@@ -8,17 +8,19 @@
   <h1>{{ deployment.domain }}</h1>
   <p><span class="badge">{{ deployment.state }} — {{ version_info.deployed_version or deployment.git_ref }} ({{ (deployment.git_commit or "")[:8] }})</span></p>
   <p class="links">
-    <a href="/deployments/{{ deployment.domain }}/logs">Status &amp; logs</a>
+    <a href="/deployments/{{ deployment.domain }}/logs" class="button button-ghost">Status &amp; logs</a>
   </p>
 
   {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+  {% set update_available = version_info.state == "tracked" and (version_info.status.upgrade_to or version_info.status.update_to) %}
 
   {% if version_info.state == "tracked" %}
     {% if version_info.status.upgrade_to %}
     <p class="alert-warn">Major upgrade available: {{ version_info.status.current }} &rarr; {{ version_info.status.upgrade_to }}. Review before upgrading — may include breaking changes.</p>
     {% endif %}
     {% if version_info.status.update_to %}
-    <p class="alert-info">Update available: {{ version_info.status.current }} &rarr; {{ version_info.status.update_to }}.</p>
+    <p class="text-muted">Update available: {{ version_info.status.current }} &rarr; {{ version_info.status.update_to }}.</p>
     {% endif %}
   {% elif version_info.state == "custom" %}
     <p class="text-muted">This deployment tracks a custom ref — automatic update/upgrade notifications aren't available. <a href="#update-form">Update it manually</a>.</p>
@@ -26,26 +28,28 @@
     <p class="alert">Couldn't reach the deployed API to check its version — it may be unhealthy. Worth investigating before considering an update.</p>
   {% endif %}
 
-  <h2>Update</h2>
-  <form method="post" action="/deployments/{{ deployment.domain }}/update/plan" class="card" id="update-form">
-    <label>App version
-      <select name="git_ref">
-        {% for v in available_versions %}
-        <option value="{{ v }}" {{ "selected" if v == default_git_ref }}>{{ v }}</option>
-        {% endfor %}
-        {% if not available_versions %}<option value="main" selected>main (no releases found)</option>{% endif %}
-      </select>
-    </label>
+  <details {{ "open" if update_available }}>
+    <summary>Update</summary>
+    <form method="post" action="/deployments/{{ deployment.domain }}/update/plan" class="card" id="update-form">
+      <label>App version
+        <select name="git_ref">
+          {% for v in available_versions %}
+          <option value="{{ v }}" {{ "selected" if v == default_git_ref }}>{{ v }}</option>
+          {% endfor %}
+          {% if not available_versions %}<option value="main" selected>main (no releases found)</option>{% endif %}
+        </select>
+      </label>
 
-    <details class="card">
-      <summary>Advanced: custom git ref / repository</summary>
-      <label>Git repository URL
-        <input type="url" name="git_repo_url" value="{{ default_git_repo_url }}">
-      </label>
-      <label>Custom git ref (overrides version above — branch, tag, or commit SHA)
-        <input type="text" name="git_ref_override" placeholder="e.g. main, or a commit SHA">
-      </label>
-    </details>
-    <button type="submit" class="button">Review update</button>
-  </form>
+      <details class="card">
+        <summary>Advanced: custom git ref / repository</summary>
+        <label>Git repository URL
+          <input type="url" name="git_repo_url" value="{{ default_git_repo_url }}">
+        </label>
+        <label>Custom git ref (overrides version above — branch, tag, or commit SHA)
+          <input type="text" name="git_ref_override" placeholder="e.g. main, or a commit SHA">
+        </label>
+      </details>
+      <button type="submit" class="button">Review update</button>
+    </form>
+  </details>
 {% endblock %}

@@ -269,6 +269,9 @@ pre {
   border-radius: var(--radius);
   padding: var(--space-2);
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 80vh;
+  min-height: 200px;
   font-size: 0.85rem;
   white-space: pre-wrap;
 }

@@ -465,13 +465,27 @@ def terraform_apply(config: Config, ami_id: str) -> dict[str, Any]:
         Path(tfvars_path).unlink(missing_ok=True)
 
 
-def wait_with_spinner(message: str, check_fn, timeout: int = 600) -> None:
-    """Wait for a condition with a spinner."""
+def wait_with_spinner(
+    message: str,
+    check_fn,
+    timeout: int = 600,
+    on_tick: Callable[[], list[str]] | None = None,
+) -> None:
+    """Wait for a condition with a spinner.
+
+    ``on_tick``, if given, is polled every iteration and any lines it returns
+    are written as progress output before the spinner redraws — used to tail
+    remote logs so long waits aren't silent.
+    """
     spinner = ["|", "/", "-", "\\"]
     idx = 0
     start = time.time()
 
     while True:
+        if on_tick:
+            for line in on_tick():
+                write_line(f"[deploy]   {line}")
+
         elapsed = int(time.time() - start)
         write_inline(f"[deploy] {message} {spinner[idx % len(spinner)]} ({elapsed}s)")
 
@@ -525,6 +539,7 @@ def _send_ssm_command_and_wait(
     comment: str,
     timeout: int,
     session: boto3.Session | None,
+    on_tick: Callable[[], list[str]] | None = None,
 ) -> str:
     """Send an SSM command, wait for completion, and return its stdout.
 
@@ -571,7 +586,7 @@ def _send_ssm_command_and_wait(
 
         return False
 
-    wait_with_spinner(comment, check, timeout=timeout)
+    wait_with_spinner(comment, check, timeout=timeout, on_tick=on_tick)
     return result.get("output", "")
 
 
@@ -582,9 +597,10 @@ def run_ssm_command(
     comment: str,
     timeout: int = 1800,
     session: boto3.Session | None = None,
+    on_tick: Callable[[], list[str]] | None = None,
 ) -> None:
     """Run a command via SSM and wait for completion, discarding its output."""
-    _send_ssm_command_and_wait(instance_id, region, commands, comment, timeout, session)
+    _send_ssm_command_and_wait(instance_id, region, commands, comment, timeout, session, on_tick)
 
 
 def run_ssm_command_capturing_output(
@@ -644,9 +660,62 @@ git -C /opt/glow checkout --force "${{checkout_ref}}"
     )
 
 
+_CLOUDWATCH_NOISE_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"^[IDWE]! ",  # amazon-cloudwatch-agent-ctl's own log lines
+        r"^/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ",
+        r"^Configuration validation",
+    )
+)
+
+
+def _tail_new_cloudwatch_lines(
+    logs_client, log_group: str, stream_name: str
+) -> Callable[[], list[str]]:
+    """Build a poll() callable that returns lines appended to a CloudWatch log
+    stream since this closure was built — a stream reused across deploys (same
+    instance, same log group/stream name) already has history from previous
+    runs, so a plain "first call" cutoff would replay that stale tail as if it
+    were new. Filtering by wall-clock start time avoids that regardless of
+    what the stream already contains. Also drops known agent-startup noise
+    (the amazon-cloudwatch-agent-ctl schema-validation banner, printed once
+    per ``-s`` restart in the userdata script) so it isn't shown twice.
+    """
+    from botocore.exceptions import ClientError
+
+    state: dict[str, Any] = {"token": None, "start_time_ms": int(time.time() * 1000) - 5000}
+
+    def poll() -> list[str]:
+        kwargs: dict[str, Any] = {
+            "logGroupName": log_group,
+            "logStreamName": stream_name,
+            "startFromHead": True,
+        }
+        if state["token"] is None:
+            kwargs["startTime"] = state["start_time_ms"]
+        else:
+            kwargs["nextToken"] = state["token"]
+
+        try:
+            response = logs_client.get_log_events(**kwargs)
+        except ClientError:
+            return []
+
+        state["token"] = response.get("nextForwardToken")
+        return [
+            event["message"]
+            for event in response.get("events", [])
+            if not any(pattern.search(event["message"]) for pattern in _CLOUDWATCH_NOISE_PATTERNS)
+        ]
+
+    return poll
+
+
 def rerun_runner_userdata(
     instance_id: str,
     region: str,
+    domain_name: str,
     env: dict[str, str] | None = None,
     session: boto3.Session | None = None,
 ) -> None:
@@ -654,7 +723,9 @@ def rerun_runner_userdata(
 
     ``env`` here is a set of environment variables exported inside the remote
     shell script, unrelated to the local subprocess environment used for
-    terraform/packer.
+    terraform/packer. While waiting for the command to finish, tails the
+    bootstrap log's CloudWatch stream so the (often multi-minute) run isn't
+    silent.
     """
     env_exports = "\n".join(
         f"export {name}={shlex.quote(value)}" for name, value in (env or {}).items()
@@ -680,6 +751,13 @@ fi
 }}
 """
 
+    logs_client = _client(session, "logs", region)
+    on_tick = _tail_new_cloudwatch_lines(
+        logs_client,
+        f"/glow/{domain_name}/bootstrap",
+        f"{instance_id}/runner-bootstrap",
+    )
+
     run_ssm_command(
         instance_id,
         region,
@@ -687,6 +765,7 @@ fi
         "rerun runner userdata",
         timeout=3600,
         session=session,
+        on_tick=on_tick,
     )
 
 
@@ -983,6 +1062,7 @@ def provision(config: Config) -> dict[str, Any] | None:
     rerun_runner_userdata(
         instance_id,
         config.aws_region,
+        config.domain_name,
         {
             "GIT_REPO_URL": config.git_repo_url,
             "GIT_REF": config.git_ref,
@@ -1034,6 +1114,7 @@ def update(config: Config) -> None:
     rerun_runner_userdata(
         instance_id,
         config.aws_region,
+        config.domain_name,
         {
             "GIT_REPO_URL": config.git_repo_url,
             "GIT_REF": config.git_ref,

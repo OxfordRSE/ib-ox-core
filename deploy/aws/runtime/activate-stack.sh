@@ -122,9 +122,9 @@ start_stack() {
   step "Building and starting containers"
   cd "${WORK_DIR}"
   step "Building API"
-  compose --progress quiet build api
+  compose --progress plain build api
   step "Building Dashboard"
-  compose --progress quiet build dashboard
+  compose --progress plain build dashboard
 
   step "Bringing up all containers"
   compose --progress quiet up -d --build --quiet-pull --quiet-build --remove-orphans

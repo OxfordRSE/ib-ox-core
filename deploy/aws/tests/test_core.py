@@ -476,6 +476,47 @@ def test_get_container_log_tail_reads_single_stream_directly(monkeypatch):
     assert fake_logs.get_events_calls[0]["logStreamName"] == "i-1234567890-glow-web-1"
 
 
+class _SequencedLogsClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get_log_events(self, **kwargs):
+        self.calls.append(kwargs)
+        return self._responses.pop(0)
+
+
+def test_tail_new_cloudwatch_lines_filters_agent_noise_and_advances_token():
+    fake_logs = _SequencedLogsClient(
+        [
+            {
+                "events": [
+                    {"message": "I! Trying to detect region from ec2"},
+                    {"message": "Configuration validation succeeded"},
+                    {"message": "[PROGRESS] Activate stack"},
+                ],
+                "nextForwardToken": "token-1",
+            },
+            {
+                "events": [{"message": "[PROGRESS] Building Dashboard"}],
+                "nextForwardToken": "token-2",
+            },
+        ]
+    )
+
+    poll = core._tail_new_cloudwatch_lines(
+        fake_logs, "/glow/example.com/bootstrap", "i-1234567890/runner-bootstrap"
+    )
+
+    assert poll() == ["[PROGRESS] Activate stack"]
+    assert poll() == ["[PROGRESS] Building Dashboard"]
+    assert fake_logs.calls[0]["startFromHead"] is True
+    assert "startTime" in fake_logs.calls[0]
+    assert "nextToken" not in fake_logs.calls[0]
+    assert fake_logs.calls[1]["nextToken"] == "token-1"
+    assert "startTime" not in fake_logs.calls[1]
+
+
 # ---------------------------------------------------------------------------
 # SSM command helpers
 # ---------------------------------------------------------------------------
@@ -484,7 +525,9 @@ def test_get_container_log_tail_reads_single_stream_directly(monkeypatch):
 def test_rerun_runner_userdata_reports_last_bootstrap_log_line(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_run_ssm_command(instance_id, region, commands, comment, timeout=1800, session=None):
+    def fake_run_ssm_command(
+        instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None
+    ):
         captured["instance_id"] = instance_id
         captured["region"] = region
         captured["commands"] = commands
@@ -492,8 +535,9 @@ def test_rerun_runner_userdata_reports_last_bootstrap_log_line(monkeypatch):
         captured["timeout"] = timeout
 
     monkeypatch.setattr(core, "run_ssm_command", fake_run_ssm_command)
+    monkeypatch.setattr(core, "_client", lambda session, service, region: SimpleNamespace())
 
-    core.rerun_runner_userdata("i-1234567890", "eu-west-2")
+    core.rerun_runner_userdata("i-1234567890", "eu-west-2", "example.com")
 
     assert captured["instance_id"] == "i-1234567890"
     assert captured["region"] == "eu-west-2"
@@ -508,14 +552,18 @@ def test_rerun_runner_userdata_reports_last_bootstrap_log_line(monkeypatch):
 def test_rerun_runner_userdata_accepts_git_environment_overrides(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_run_ssm_command(instance_id, region, commands, comment, timeout=1800, session=None):
+    def fake_run_ssm_command(
+        instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None
+    ):
         captured["commands"] = commands
 
     monkeypatch.setattr(core, "run_ssm_command", fake_run_ssm_command)
+    monkeypatch.setattr(core, "_client", lambda session, service, region: SimpleNamespace())
 
     core.rerun_runner_userdata(
         "i-1234567890",
         "eu-west-2",
+        "example.com",
         {
             "GIT_REPO_URL": "https://example.com/glow.git",
             "GIT_REF": "v1.2.3",
@@ -762,7 +810,7 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
     monkeypatch.setattr(
         core,
         "rerun_runner_userdata",
-        lambda instance_id, region, env=None, session=None: calls.append(
+        lambda instance_id, region, domain_name, env=None, session=None: calls.append(
             ("rerun", env)
         ),
     )
@@ -853,7 +901,7 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
     monkeypatch.setattr(
         core,
         "rerun_runner_userdata",
-        lambda instance_id, region, env=None, session=None: calls.append(
+        lambda instance_id, region, domain_name, env=None, session=None: calls.append(
             ("rerun", env)
         ),
     )
