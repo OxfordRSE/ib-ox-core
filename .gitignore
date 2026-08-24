@@ -229,6 +229,9 @@ deploy/.deploy/share/*
 !deploy/.deploy/share/.gitkeep
 !deploy/.deploy/share/.env.runtime
 
+# Git worktrees (scratch, per-plan isolated workspaces)
+.worktrees/
+
 # Docker
 .docker/
 
