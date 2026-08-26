@@ -9,4 +9,11 @@ locals {
     Domain       = var.domain_name
     Stack        = "glow"
   }
+
+  runner_tags = merge(local.tags, {
+    Name      = "${var.app_name}-runner"
+    Component = "glow-runner"
+    GitRef    = var.git_ref
+    GitCommit = var.git_checkout_ref
+  })
 }

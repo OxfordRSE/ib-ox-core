@@ -66,16 +66,20 @@ resource "aws_instance" "runner" {
     http_put_response_hop_limit = 1
   }
 
-  tags = merge(local.tags, {
-    Name      = "${var.app_name}-runner"
-    Component = "glow-runner"
-    GitRef    = var.git_ref
-    GitCommit = var.git_checkout_ref
-  })
+  tags = local.runner_tags
 
   lifecycle {
     ignore_changes = [ami, user_data]
   }
+}
+
+# The instance's primary ENI is auto-created and does not inherit the
+# instance's tags, so it stays untagged unless we tag it explicitly.
+resource "aws_ec2_tag" "runner_eni" {
+  for_each    = local.runner_tags
+  resource_id = aws_instance.runner.primary_network_interface_id
+  key         = each.key
+  value       = each.value
 }
 
 resource "aws_lb_target_group_attachment" "api" {
