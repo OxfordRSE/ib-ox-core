@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec > >(tee -a /var/log/glow-activate.log) 2>&1
-
 source /etc/glow-runner.env
 
 DOMAIN_NAME="${DOMAIN_NAME:?DOMAIN_NAME is required}"
