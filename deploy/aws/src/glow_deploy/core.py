@@ -1013,6 +1013,8 @@ def get_cpu_utilization(
 
 def provision(config: Config) -> dict[str, Any] | None:
     """Initial provision: build AMI, apply Terraform, activate stack."""
+    if config.dry_run:
+        write_line("Checking configuration with a dry run.")
     write_line(f"[deploy] Provisioning {config.domain_name}")
     write_line(f"[deploy] Git reference: {config.git_ref} ({config.git_commit[:8]})")
 
@@ -1082,6 +1084,8 @@ def provision(config: Config) -> dict[str, Any] | None:
 
 def update(config: Config) -> None:
     """Update existing instance via SSM."""
+    if config.dry_run:
+        write_line("Checking configuration with a dry run.")
     write_line(f"[deploy] Updating to {config.git_ref} ({config.git_commit[:8]})")
 
     bucket = ensure_state_bucket(

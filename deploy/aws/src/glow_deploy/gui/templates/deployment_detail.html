@@ -9,6 +9,10 @@
   <p><span class="badge">{{ deployment.state }} — {{ version_info.deployed_version or deployment.git_ref }} ({{ (deployment.git_commit or "")[:8] }})</span></p>
   <p class="links">
     <a href="/deployments/{{ deployment.domain }}/logs" class="button button-ghost">Status &amp; logs</a>
+    <form method="post" action="/deployments/{{ deployment.domain }}/destroy"
+          onsubmit="return confirm('Destroy {{ deployment.domain }}? This permanently tears down all its AWS infrastructure (instance, load balancer, data) and cannot be undone.')">
+      <button type="submit" class="button button-danger-ghost">Destroy</button>
+    </form>
   </p>
 
   {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
